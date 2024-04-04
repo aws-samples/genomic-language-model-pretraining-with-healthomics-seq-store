@@ -1,0 +1,6 @@
+numpy
+pandas
+s3torchconnector
+transformers==4.26.1
+biopython==1.73
+pyfaidx==0.8.1.1
