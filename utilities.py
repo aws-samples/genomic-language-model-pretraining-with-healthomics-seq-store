@@ -31,14 +31,18 @@ def gunzip_fileobj(gzip_fileobj: BinaryIO) -> BinaryIO:
         return io.BytesIO(f_in.read())
 
 
-def convert_directory(dir: Path,
+def convert_directory(root_dir: Path,
                       convertor: Callable[[Path], Path],
-                      suffix: str = ".fq") -> List[Path]:
+                      suffix: str = ".fq",
+                      delete_orig_file: bool = False) -> List[Path]:
     result = []
-    for orig_file in dir.rglob(f"*{suffix}"):
+    for orig_file in root_dir.rglob(f"*{suffix}"):
         new_file = convertor(orig_file)
         print(f"{str(orig_file)} -> {str(new_file)}")
         result.append(new_file)
+        if delete_orig_file:
+            orig_file.unlink()
+            print(f"Deleted {str(orig_file)}")
     print("Done")
     return result
 
@@ -64,29 +68,47 @@ def gzip_fileobj(fileobj: TextIO) -> BinaryIO:
     return io.BytesIO(buf)
 
 
-def convert_fastq_to_fasta(fastq_path: str, fasta_path: str):
-    with open(fastq_path, "r") as in_f:
-        with open(fasta_path, "w") as out_f:
-           for i, line in enumerate(in_f):
-               if (i % 4) == 0 or ((i-1) % 4) == 0:
-                   print(f"outputing line {i}")
-                   print(line, file=out_f)
+def convert_fastq_to_fasta(fastq: Path) -> Path:
+    r"""
+    >>> fastq = Path("/tmp/test.fq")
+    >>> _len = fastq.write_text(">seq1\nacgt\n@\n####\n>seq2\ntgac\n@\n####\n")
+    >>> fasta = convert_fastq_to_fasta(fastq)
+    >>> print(fasta.read_text())
+    >seq1
+    acgt
+    >seq2
+    tgac
+    <BLANKLINE>
+    """
+    fasta = fastq.with_suffix(".fa")
+    buf = convert_fastq_to_fasta_fileobj(io.StringIO(fastq.read_text()))
+    fasta.write_text(buf.getvalue())
+    return fasta
+
+
+def convert_fastq_to_fasta_fileobj(fasta: TextIO) -> TextIO:
+    result = io.StringIO()
+    for i, line in enumerate(fasta):
+        line = line.strip()
+        if (i % 4) == 0 or ((i-1) % 4) == 0:
+           result.write(line + "\n")
+    return result
 
 
 def convert_fasta_file_to_fastq(fasta: Path) -> Path:
     fastq = fasta.with_suffix(".fq")
-    buf = convert_fasta_file_obj_to_fastq(io.StringIO(fasta.read_text()))
+    buf = convert_fasta_to_fastq_fileobj(io.StringIO(fasta.read_text()))
     fastq.write_text(buf.getvalue() + "\n")
     return fastq
 
 
-def convert_fasta_file_obj_to_fastq(fasta: TextIO) -> TextIO:
+def convert_fasta_to_fastq_fileobj(fasta: TextIO) -> TextIO:
     r"""
 
     Main idea is to add in a fake quality line.
 
     >>> fasta = ">seq1\nacgt\ngtac"
-    >>> fastq = convert_fasta_file_obj_to_fastq(io.StringIO(fasta))
+    >>> fastq = convert_fasta_to_fastq_fileobj(io.StringIO(fasta))
     >>> print(fastq.getvalue())
     @seq1
     acgtgtac
