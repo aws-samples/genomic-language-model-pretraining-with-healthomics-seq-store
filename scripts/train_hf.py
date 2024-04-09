@@ -5,11 +5,9 @@ from os.path import expanduser, join
 
 import torch
 from torch import optim
-
-from transformers import AutoTokenizer
-from transformers import AutoModelForCausalLM
-
 from torch.utils.data import DataLoader
+
+from transformers import AutoTokenizer, AutoModelForCausalLM, get_scheduler
 from species_dataset import SpeciesDataset
 
 import logging
@@ -24,7 +22,11 @@ logging.basicConfig(
 
 def parse_arguments():
     parser = argparse.ArgumentParser("Arguements for pre-training HyenaDNA model.")
-
+   
+    parser.add_argument("--species", nargs="+", required=True, help="Species types that we train the model on.")
+    parser.add_argument("--data_dir", type=str, default=os.environ["SM_CHANNEL_DATA"], help="Path to dataset.")
+    parser.add_argument("--model_dir", type=str, default=os.environ["SM_MODEL_DIR"], help="Path to model output folder.")
+    
     parser.add_argument("--epochs", type=int, required=True, help="Number of training epochs.")
     parser.add_argument("--model_checkpoint", type=str, default='LongSafari/hyenadna-small-32k-seqlen-hf', help="Model checkpoint path.")
     parser.add_argument("--max_length", type=int, default=32_000, help="Maximum sequence length.")
@@ -35,8 +37,6 @@ def parse_arguments():
     parser.add_argument("--log_level", type=str, default="INFO", help="Log Level.")
     parser.add_argument("--log_interval", type=int, default=1, help="Log Interval.")
 
-    parser.add_argument("--data_dir", type=str, default=os.environ["SM_CHANNEL_DATA"], help="Path to dataset.")
-
     args = parser.parse_args()
     return args
 
@@ -44,7 +44,7 @@ def parse_arguments():
 def get_dataset(tokenizer, max_length):
 
     train_dataset = SpeciesDataset(
-           species=["mouse"],
+           species=args.species,
            species_dir=join(args.data_dir),
            split="train",
            max_length=max_length,
@@ -63,8 +63,8 @@ def get_dataset(tokenizer, max_length):
            cutoff_test=0.2)
     
     test_dataset = SpeciesDataset(
-           species=["mouse"],
-           species_dir=join(expanduser("~"), "data", "species"),
+           species=args.species,
+           species_dir=join(args.data_dir),
            split="test",
            max_length=max_length,
            total_size=1000,
@@ -84,21 +84,23 @@ def get_dataset(tokenizer, max_length):
     return train_dataset, test_dataset
 
 
-def train(model, train_loader, optimizer, device, log_interval, epoch):
+def train(model, train_loader, optimizer, lr_scheduler, device, log_interval, epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         
-        optimizer.zero_grad()
         output = model(input_ids=data, labels=target)
         loss = output.loss
         loss.backward()
+        
         optimizer.step()
-
+        lr_scheduler.step()
+        optimizer.zero_grad()
+        
         if batch_idx % log_interval == 0:
-            logger.info('Train Epoch: {} [{}/{} ({:.0f}%)]\tTraining Loss: {:.6f}'.format(
+            logger.info('Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.6f}, Train perplexity: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item()))
+                100. * batch_idx / len(train_loader), loss.item(), calculate_perplexity(loss.item())))
             
 
 def calculate_perplexity(avg_loss):
@@ -118,8 +120,16 @@ def eval(model, test_dataloader, device, epoch):
             total_loss += loss.item() * data.size(0)
             total_items += data.size(0)
     avg_loss = total_loss/total_items
-    logger.info('\n Epoch {}. Evaludation: Average loss: {:.4f}, Perplexity : {:.2f}\n'.format(epoch,
+    logger.info('\n Epoch {}. Eval Average Loss: {:.4f}, Eval perplexity: {:.6f}\n'.format(epoch,
         avg_loss, calculate_perplexity(avg_loss)) )
+
+
+def save_model(model, model_dir):
+    model = model.module if hasattr(model, "module") else model
+    os.makedirs(model_dir, exist_ok=True)
+    checkpoint = {"state_dict": model.state_dict()}
+    path = f"{model_dir}/checkpoint.pt"
+    torch.save(checkpoint, path)
 
 
 def main(args):
@@ -142,14 +152,21 @@ def main(args):
 
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
+    lr_scheduler = get_scheduler(
+        name="linear",
+        optimizer=optimizer,
+        num_warmup_steps=0,
+        num_training_steps=(len(train_dataloader) * args.epochs)/args.batch_size
+    )
+    
     # Fix Me
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
     for epoch in range(args.epochs):
-        train(model, train_dataloader, optimizer, device, args.log_interval, epoch)
+        train(model, train_dataloader, optimizer, lr_scheduler, device, args.log_interval, epoch)
         eval(model, test_dataloader, device, epoch)
-
-    #TODO : Save Model
+    
+    save_model(model, args.model_dir)
 
 
 if __name__ == "__main__" :
