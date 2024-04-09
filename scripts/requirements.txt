@@ -1,7 +1,7 @@
 numpy
 pandas
 s3torchconnector
-transformers==4.26.1
+transformers==4.36.0
 biopython==1.73
 pyfaidx==0.8.1.1
 accelerate==0.28.0
