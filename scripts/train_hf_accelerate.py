@@ -1,19 +1,15 @@
 
 import sys
 import os
-from os.path import expanduser, join
+from os.path import join
 
 import torch
-from torch import optim
 from torch.utils.data import DataLoader
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, get_scheduler
 from species_dataset import SpeciesDataset
 
 import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
-from datetime import timedelta
 
 import logging
 from torch.utils.tensorboard import SummaryWriter
@@ -30,10 +26,10 @@ logging.basicConfig(
 
 # Set tensorboard 
 LOG_DIR="/opt/ml/output/tensorboard"
+#LOG_DIR="/home/ubuntu/tmp/tb"
 tensorboard_callback = SummaryWriter(log_dir=LOG_DIR)
 
 accelerator = Accelerator()
-
 
 def parse_arguments():
     parser = argparse.ArgumentParser("Arguements for pre-training HyenaDNA model.")
@@ -99,76 +95,59 @@ def get_dataset(tokenizer, max_length):
     return train_dataset, test_dataset
 
 
-def train(model, train_loader, optimizer, lr_scheduler, device, log_interval, epoch, train_sampler):
+def train(model, train_loader, optimizer, lr_scheduler, log_interval, epoch):
     model.train()
-    train_sampler.set_epoch(epoch)
     
     for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)
-
-        logger.info(f"Data device: {data.device}, Target device: {target.device}, Model device: {next(model.parameters()).device}")
-
-        
-        output = model(input_ids=data, labels=target)
-        loss = output.loss
+        outputs = model(input_ids=data, labels=target)
+        loss = outputs.loss
         accelerator.backward(loss)
         
         optimizer.step()
         lr_scheduler.step()
         optimizer.zero_grad()
 
-        loss_tensor = torch.tensor([loss.item()]).to(device)
-        dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
-        loss_tensor /= dist.get_world_size()
-        
-        global_loss = loss_tensor.item()
-        global_perplexity = calculate_perplexity(global_loss)
-        
-        if dist.get_rank() == 0:
-            tensorboard_callback.add_scalar('Training Loss', global_loss, epoch * len(train_loader) + batch_idx)
-            tensorboard_callback.add_scalar('Training Perplexity', global_perplexity, epoch * len(train_loader) + batch_idx)
-            
+        local_loss = loss.item()
+        local_perplexity = calculate_perplexity(local_loss)
+
+        if accelerator.is_main_process:
+            tensorboard_callback.add_scalar('Training Loss', local_loss, epoch * len(train_loader) + batch_idx)
+            tensorboard_callback.add_scalar('Training Perplexity', local_perplexity, epoch * len(train_loader) + batch_idx)
+
             if batch_idx % log_interval == 0:
                 logger.info('Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.6f}, Train Perplexity: {:.6f}'.format(
-                    epoch, batch_idx * len(data), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), global_loss, global_perplexity))
+                            epoch, batch_idx * len(data), len(train_loader.dataset),
+                            100. * batch_idx / len(train_loader), local_loss, local_perplexity))
 
-            
 
 def calculate_perplexity(avg_loss):
     perplexity = torch.exp(torch.tensor(avg_loss))
     return perplexity.item()
 
 
-def eval(model, test_dataloader, device, epoch):
+def eval(model, test_dataloader, epoch):
     model.eval()
     total_loss = 0
     total_items = 0
+
     with torch.no_grad() :
         for batch_idx, (data, target) in enumerate(test_dataloader):
-            data, target = data.to(device), target.to(device)
             output = model(input_ids=data, labels=target)
             loss = output.loss
+
             total_loss += loss.item() * data.size(0)
             total_items += data.size(0)
 
-    # Convert total loss and total items to tensors for all_reduce operation
-    total_loss_tensor = torch.tensor([total_loss]).to(device)
-    total_items_tensor = torch.tensor([total_items]).to(device)
-    
-    # Use all_reduce to sum these tensors across all processes
-    dist.all_reduce(total_loss_tensor, op=dist.ReduceOp.SUM)
-    dist.all_reduce(total_items_tensor, op=dist.ReduceOp.SUM)
 
-    global_avg_loss = total_loss_tensor.item() / total_items_tensor.item()
-    global_avg_perplexity = calculate_perplexity(global_avg_loss)
+    avg_loss = total_loss / total_items
+    avg_perplexity = calculate_perplexity(avg_loss)
 
-    if dist.get_rank() == 0:
-        tensorboard_callback.add_scalar('Evaluation Loss', global_avg_loss, epoch)
-        tensorboard_callback.add_scalar('Evaluation Perplexity', global_avg_perplexity, epoch)
+    if accelerator.is_main_process:
+        tensorboard_callback.add_scalar('Evaluation Loss', avg_loss, epoch)
+        tensorboard_callback.add_scalar('Evaluation Perplexity', avg_perplexity, epoch)
         
         logger.info('\n Epoch {}. Eval Average Loss: {:.4f}, Eval Perplexity: {:.6f}\n'.format(
-            epoch, global_avg_loss, global_avg_perplexity))
+            epoch, avg_loss, avg_perplexity))
 
 
 def save_model(model, model_dir):
@@ -180,68 +159,37 @@ def save_model(model, model_dir):
 
 
 def init_distributed_training():
-    world_size = int(os.environ["WORLD_SIZE"])
-    global_rank = int(os.environ["RANK"])    
-    local_rank = int(os.environ['LOCAL_RANK'])
+    if accelerator.is_local_main_process :
+        logger.info(f"Accelerate State: {accelerator.state}")
+        logger.info(f"Is Main Process: {accelerator.is_main_process}")
+        logger.info(f"Local Process Index: {accelerator.local_process_index}")
+        logger.info(f"Device: {accelerator.device}")
+        logger.info(f"Number of Processes: {accelerator.num_processes}")
 
-    logger.info("Distribution setup is done with world size [{}]".format(world_size))
-
-    torch.cuda.set_device(local_rank)
-    
-    dist.init_process_group(backend="nccl", world_size=world_size, rank=global_rank, init_method="env://", timeout=timedelta(seconds=120))
-
-    device = torch.device(f"cuda:{local_rank}")
-
-    return local_rank, device
-
-def cleanup():
-    dist.destroy_process_group()
     
 def main(args):
 
-    local_rank, device = init_distributed_training()
+    init_distributed_training()
     
     tokenizer = AutoTokenizer.from_pretrained(args.model_checkpoint, trust_remote_code=True)
     
     train_dataset, test_dataset = get_dataset(tokenizer, args.max_length)
-    train_sampler = DistributedSampler(train_dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank())
-    test_sampler = DistributedSampler(test_dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank())
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
     
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, sampler=test_sampler, shuffle=False)
-
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_checkpoint, 
-        torch_dtype=torch.bfloat16, 
-        device_map="auto", 
-        trust_remote_code=True
-    )
-
-    #Fix Me to show only on rank 1
-    logger.debug(model)
-
-    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-
-    lr_scheduler = get_scheduler(
-        name="linear",
-        optimizer=optimizer,
-        num_warmup_steps=0,
-        num_training_steps=(len(train_dataloader) * args.epochs)/args.batch_size
-    )
+    model = AutoModelForCausalLM.from_pretrained(args.model_checkpoint, torch_dtype=torch.bfloat16, trust_remote_code=True)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    lr_scheduler = get_scheduler("linear", optimizer=optimizer, num_warmup_steps=0, num_training_steps=(len(train_dataloader) * args.epochs)/args.batch_size)
     
-    model.to(device)
-    model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
+    model, optimizer, train_dataloader, test_dataloader = accelerator.prepare(model, optimizer, train_dataloader, test_dataloader)
+
     
     for epoch in range(args.epochs):
-        train(model, train_dataloader, optimizer, lr_scheduler, device, args.log_interval, epoch, train_sampler)
-        eval(model, test_dataloader, device, epoch)
+        train(model, train_dataloader, optimizer, lr_scheduler, args.log_interval, epoch)
+        eval(model, test_dataloader, epoch)
 
-    dist.barrier()
-
-    if dist.get_rank() == 0:
+    if accelerator.is_main_process:
         save_model(model, args.model_dir)
-
-    cleanup()
 
 
 if __name__ == "__main__" :
