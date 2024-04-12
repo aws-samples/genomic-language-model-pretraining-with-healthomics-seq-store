@@ -1,11 +1,7 @@
-## My Project
+## Genomic language model pretraining with the HealthOmics sequence store
 
-TODO: Fill this README out!
-
-Be sure to:
-
-* Change the title in this README
-* Edit your repository description on GitHub
+In this repo we show how you can use AWS infrastructure---AWS HealthOmics and AWS Sagemaker---to
+to easy and cost-effectively pre-train a genomic language model, HyenaDNA.
 
 ## Security
 
