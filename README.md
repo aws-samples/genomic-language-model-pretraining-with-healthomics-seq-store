@@ -3,7 +3,7 @@
 In this repo we show how you can use AWS infrastructure---AWS HealthOmics and AWS Sagemaker---to
 to easy and cost-effectively pre-train a genomic language model, [HyenaDNA](https://arxiv.org/pdf/2306.15794.pdf).
 
-## Installation
+## Installation & First Steps
 
 1. Clone this repo in a SageMaker notebook.
 2. If you don't already have your genomic data (FASTA files) in a sequence store, then use the `load-genome-to-sequence-store.ipynb` notebook to do so.
