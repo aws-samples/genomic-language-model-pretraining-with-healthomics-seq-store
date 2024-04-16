@@ -17,6 +17,8 @@ from torch.utils.tensorboard import SummaryWriter
 import argparse
 from accelerate import Accelerator
 
+import preprocess_data as data_proc
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="[HyenaDNA Training]%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -168,6 +170,11 @@ def init_distributed_training():
 
     
 def main(args):
+
+    if accelerator.is_local_main_process:
+        data_proc.preprocess_data_for_hyenaDNA(args.data_dir, args.species[0])
+
+    accelerator.wait_for_everyone()
 
     init_distributed_training()
     
