@@ -71,7 +71,7 @@ def gzip_fileobj(fileobj: TextIO) -> BinaryIO:
 def convert_fastq_to_fasta(fastq: Path) -> Path:
     r"""
     >>> fastq = Path("/tmp/test.fq")
-    >>> _len = fastq.write_text(">seq1\nacgt\n@\n####\n>seq2\ntgac\n@\n####\n")
+    >>> _len = fastq.write_text("@seq1\nacgt\n@\n####\n@seq2\ntgac\n@\n####\n")
     >>> fasta = convert_fastq_to_fasta(fastq)
     >>> print(fasta.read_text())
     >seq1
@@ -91,6 +91,8 @@ def convert_fastq_to_fasta_fileobj(fasta: TextIO) -> TextIO:
     for i, line in enumerate(fasta):
         line = line.strip()
         if (i % 4) == 0 or ((i-1) % 4) == 0:
+           if line.startswith("@"):
+               line = f">{line[1:]}"
            result.write(line + "\n")
     return result
 
