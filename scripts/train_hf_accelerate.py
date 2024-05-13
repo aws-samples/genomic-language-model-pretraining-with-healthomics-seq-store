@@ -61,7 +61,7 @@ def get_dataset(tokenizer, max_length):
            species_dir=join(args.data_dir),
            split="train",
            max_length=max_length,
-           total_size=1000,
+           total_size=10000,
            pad_max_length=None,
            tokenizer=tokenizer,
            tokenizer_name="char",
@@ -181,6 +181,8 @@ def main(args):
     tokenizer = AutoTokenizer.from_pretrained(args.model_checkpoint, trust_remote_code=True)
     
     train_dataset, test_dataset = get_dataset(tokenizer, args.max_length)
+    print("Train data set size " + str(len(train_dataset)))
+    print("Test data set size " + str(len(test_dataset)))
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
     
