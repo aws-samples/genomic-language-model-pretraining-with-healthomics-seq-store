@@ -1,3 +1,6 @@
+"""
+This file is copied directly from https://github.com/HazyResearch/hyena-dna/blob/main/src/dataloaders/datasets/species_dataset.py 
+"""
 import os
 from pathlib import Path
 from pyfaidx import Fasta
