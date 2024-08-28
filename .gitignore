@@ -1,2 +1,6 @@
 **/.ipynb_checkpoints/**
 **/__pycache__/**
+**/*.pt
+evo-model/scripts/utilities.py
+hyena-DNA/scripts/utilities.py
+hyena-DNA/mouse/**

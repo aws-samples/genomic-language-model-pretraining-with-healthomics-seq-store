@@ -7,9 +7,29 @@ To run unit-tests: python3 -m doctest utilities.py
 """
 
 import io
-from typing import BinaryIO, TextIO, List, Callable, Optional
+from typing import BinaryIO, TextIO, List, Callable, Optional, Tuple
 from pathlib import Path
 import gzip
+import re
+import math
+from contextlib import contextmanager
+from time import time
+from collections import defaultdict
+
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+import torch
+
+
+@contextmanager
+def timing(message: bool, num_iterations: Optional[int] = None):
+    start_time: float = time()
+    yield
+    duration = time() - start_time
+    print(f"{message} took {duration/60:.2f} minutes", end="")
+    if num_iterations:
+        print(f", {(num_iterations/(duration/60)):.2f} iterations/minute")
+    else:
+        print()
 
 
 def gunzip_file(gzip_file_path: Path, suffix: str) -> Path:
@@ -144,3 +164,133 @@ def convert_fasta_to_fastq_fileobj(fasta: TextIO) -> TextIO:
     if summary is not None:
         output_fastq_entry()
     return result
+
+
+def deconstruct_s3_uri(s3_url: str) -> Tuple[str, str]:
+    """
+    Extract the bucket name and prefix
+    
+    >>> deconstruct_s3_uri("s3://foo/bar.txt")
+    ('foo', 'bar.txt')
+
+    """
+    patn = re.compile(r"^s3://([^/]+)/(.*)$")
+    m = patn.match(s3_url)
+    if m:
+        return m.group(1), m.group(2)
+    else:
+        return None, None
+
+
+def load_model_and_tokenizer(model_id, revision: str = "main",
+                             download_always: bool = True
+                            ) -> tuple:
+    print(f"load_model_and_tokenizer {model_id} {download_always}")
+    kwargs = {
+        "trust_remote_code": True,
+        "revision": revision,
+    }
+    config = AutoConfig.from_pretrained(model_id, download_always=download_always,
+                                        **kwargs)
+    model = AutoModelForCausalLM.from_pretrained(model_id, config=config,
+                                                 download_always=download_always,
+                                                 **kwargs)
+    print(f"model {model}")
+    if torch.cuda.is_available():
+        model = model.to('cuda')
+        print("Model moved to GPU.")
+    else:
+        print("Using CPU for inference.")
+    tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=model_id,
+                                              download_always=download_always,
+                                              **kwargs)
+    print(f"tokenizer: {tokenizer} {type(tokenizer)}")
+    return model, tokenizer
+
+
+def join(sep: str, *strings: List[str]) -> str:
+    """
+    This is like `sep.join(strings)` except we make sure
+    that there are no consecutive separators.
+    
+    >>> join('/', 'a/', '/b')
+    'a/b'
+    """
+    return sep.join(s.strip(sep) for s in strings)
+
+
+def RMSerror(arr1: torch.tensor, arr2: torch.tensor) -> float:
+    """
+    Compute the RMS error of two 1-D tensors.
+    
+    >>> RMSerror(torch.tensor([1.0, 2.0, 3.0]),
+    ...          torch.tensor([1.0, 2.0, 3.0]))
+    0.0
+
+    >>> RMSerror(torch.tensor([1.0, 2.0, 3.0]),
+    ...          torch.tensor([1.1, 2.1, 3.1]))
+    0.09999994188547134
+
+    >>> RMSerror(torch.tensor([1.0, 2.0, 3.0]),
+    ...          torch.tensor([2.0, 3.0, 4.0]))
+    1.0
+    """
+    assert arr1.shape == arr2.shape
+    assert len(arr1.shape) ==1, "must be 1-dimensional"
+    return torch.sqrt(torch.mean((arr1-arr2)**2)).item()
+
+
+class WeightedAvg:
+    """
+    >>> wa = WeightedAvg()
+    >>> wa.add(1, 10)
+    >>> wa.add(1, 20)
+    >>> wa.value()
+    15.0
+
+    >>> wa = WeightedAvg()
+    >>> wa.add(1, 10)
+    >>> wa.add(1, 10)
+    >>> wa.add(0.1, 20)
+    >>> wa.value()
+    10.476190476190476
+    """
+    
+    def __init__(self):
+        self._sum_weights = 0
+        self._sum_values = 0
+    
+    def add(self, weight: float, value: float):
+        self._sum_weights += weight
+        self._sum_values += value*weight
+
+    def value(self):
+        return self._sum_values / self._sum_weights
+
+
+class Histogram:
+    def __init__(self, n_bins: int, low: float, high: float):
+        self._n_bins = n_bins
+        self._low = low
+        self._high = high
+        self._stats = defaultdict(int)
+    
+    def add(self, value: float):
+        if value < self._low:
+            print(f"WARNING {value} is too low")
+            value = self._low
+        if value > self._high:
+            print(f"WARNING {value} is too high")
+            value = self._high
+        bin = math.floor(((value - self._low)/(self._high - self._low)) * self._n_bins)
+        if bin > self._n_bins - 1:
+            bin = self._n_bins - 1
+        self._stats[bin] += 1
+    
+    def batch_add(self, values: List[float]):
+        for value in values:
+            self.add(value)
+        
+    def __str__(self):
+        return "[" + " ".join(str(self._stats.get(bin, 0)) for bin in range(self._n_bins))\
+                   + "]"

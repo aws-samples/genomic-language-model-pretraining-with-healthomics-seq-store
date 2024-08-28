@@ -1,0 +1,5 @@
+flash_attn==2.6.3
+transformers==4.44.2
+biopython==1.73
+pyfaidx==0.8.1.1
+tensorboard==2.16.2
