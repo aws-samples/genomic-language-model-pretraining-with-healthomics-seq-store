@@ -1,0 +1,4 @@
+scanpy==1.9.8
+matplotlib==3.7.5
+mlflow==2.13.2
+sagemaker-mlflow==0.1.0
