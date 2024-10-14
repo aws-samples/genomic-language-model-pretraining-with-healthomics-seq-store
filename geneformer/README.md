@@ -15,26 +15,15 @@ This architecture consists of two parts.
 
 ## Background
 
-### Lab workflow
-
-![Lab workflow](./images/scRNASeq%20lab%20workflow.png)
-
-### Leveraging scRNA-Seq in precision medicine
-
-![Leveraging scRNA-Seq in precision medicine](./images/scrnaseq_applications.png)
-
-### Data Flow of scRNA-Seq: from raw data to ML ready
-
-![Data flow of scRNA-seq: From raw data to ML ready](./images/scrnaseq_dataflow.jpg)
-
 ### Machine learning application to automate cell type annotation
+Traditional methods for cell type annotation using scRNA-Seq are manual, usually dependent on pre-defined lists of cell type-specific genes, and difficult to standardize and scale to multiple datasets. 
 
 ![Automating](./images/celltype%20annotation.png)
+Clarke et al. 2021 https://www.nature.com/articles/s41596-021-00534-0
 
 ### Geneformer - an scRNA-Seq foundation model 
+Geneformer is a BERT-like transformer model pre-trained on data from about 95M single-cell transcriptomes across various human tissues. During the pretraining phase, the model employs a masked language modeling technique. 
+This project aims to demonstrate the process of fine-tuning this foundation model to perform cell type annotation, and compares the performance of this approach to a linear regression classification model trained from scratch.
 
 ![Geneformer](./images/geneformer.png)
-
-### This project: An End-to-end scRNA-Seq ML workflow
-
-![this project](./images/architecture.png)
+Theodoris et al. 2023 https://doi.org/10.1038/s41586-023-06139-9
