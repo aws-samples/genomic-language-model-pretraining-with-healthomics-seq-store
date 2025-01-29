@@ -1,6 +1,6 @@
 #!urs/bin/python
 """
-Script to fine tune Geneformer on 10x PBMC3k scRNASeq dataset
+Script to fine tune and evaluate Geneformer on a scRNASeq dataset
 """
 import os
 import sys
@@ -45,30 +45,6 @@ parent_run_id = os.environ.get('MLFLOW_PARENT_RUN_ID', None)
 mlflow_experiment_name = os.environ.get('MLFLOW_EXPERIMENT_NAME', None)
 logger.info(mlflow_experiment_name)
 
-
-# def compute_metric_with_extra(datatype):
-#     '''Function factory to pass extra data to compute_metrics'''
-#     def compute_metrics(preds):
-#         '''
-#         Function to evaluate model on specified metrics for transformer Trainer
-#         '''
-#         labels = pred.label_ids
-#         preds = pred.predictions.argmax(-1)
-#         acc = accuracy_score(labels, preds)
-#         class_ave_acc = balanced_accuracy_score(labels, preds)
-#         macro_f1 = f1_score(labels, preds, average='macro')
-#         global_f1 = f1_score(labels, preds, average='micro')
-#         weighted_f1 = f1_score(labels, preds, average='weighted')
-#         return {
-#           f'{datatype}_accuracy': acc,
-#           f'{datatype}_class_averaged_accuracy': class_ave_acc,
-#           f'{datatype}_macro_f1': macro_f1,
-#           f'{datatype}_global_f1': global_f1,
-#           f'{datatype}_class_weighted_f1': weighted_f1
-#         }
-#     return compute_metrics
-
-# compute_metric = compute_metric_with_extra(extra_data)
 
 def compute_metrics(pred):
     '''
