@@ -49,26 +49,6 @@ def input_fn(input_data, content_type):
         raise ValueError("{} not supported by script!".format(content_type))
     return adata
 
-# def output_fn(prediction, accept):
-#     """Format prediction output
-    
-#     The default accept/content-type between containers for serial inference is JSON.
-#     We also want to set the ContentType or mimetype as the same value as accept so the next
-#     container can read the response payload correctly.
-#     """
-#     if accept == "application/json":
-#         instances = []
-#         for row in prediction.tolist():
-#             instances.append({"features": row})
-
-#         json_output = {"instances": instances}
-
-#         return worker.Response(json.dumps(json_output), mimetype=accept)
-#     elif accept == "text/csv":
-#         return worker.Response(encoders.encode(prediction, accept), mimetype=accept)
-#     else:
-#         raise RuntimeException("{} accept type is not supported by this script.".format(accept))
-
 
 def predict_fn(adata, model):
     """Preprocess input data and get prediction from model
