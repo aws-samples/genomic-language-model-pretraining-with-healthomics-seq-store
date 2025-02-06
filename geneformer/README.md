@@ -1,6 +1,6 @@
 # Fine Tune and Benchmark Geneformer (Single cell RNA-Seq foundation model) For Cell Type/Cell State Classification
 
-This project is a POC for apply machine learning in Single Cell Transcriptomics (scRNA-Seq) to perform cell type annotation.
+This project is a PoC to apply machine learning in Single Cell Transcriptomics (scRNA-Seq) to perform cell type annotation.
 
 scRNA-Seq has been gaining popularity in drug discovery research and therapeutic development in recent years. scRNA-Seq provides a high resolution view of gene expression at a single cell level, revealing the heterogeneity of cell populations in healthy and disease states.
 
