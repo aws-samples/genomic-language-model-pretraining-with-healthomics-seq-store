@@ -13,21 +13,21 @@ import shutil
 sys.path.append('../')
 from utilities import deconstruct_s3_uri, join
 
-import pysam
 import boto3
 import omics
+import pysam
 from omics.transfer.manager import TransferManager
 from omics.transfer.config import TransferConfig
 from pysam import VariantFile
 import requests
 
 # num_threads = 30
-s3 = boto3.client("s3")
+s3 = boto3.client("s3", region_name="us-west-2")
 
 
 def download_s3(in_s3_path, bam_path, bam_tmp_path, chr_filt, num_threads):
     # samtools view -h -b -o HG00553_chr21.bam s3://... chr21
-    print(f'downloading bam from S3 {in_s3_path} {bam_path} {bam_tmp_path} {chr_filt}')
+    print(f'Downloading BAM from S3 {in_s3_path} {chr_filt} -> {bam_tmp_path}')
 
     if not Path(bam_tmp_path).exists():
         pysam.view('-b', '-h', '-@', str(num_threads), '-o', bam_tmp_path,
@@ -37,17 +37,17 @@ def download_s3(in_s3_path, bam_path, bam_tmp_path, chr_filt, num_threads):
 
     # samtools sort -O BAM -o HG00096_sort_chr21.bam HG00096_chr21.bam 
 
-    print(f"sorting S3 -> {bam_path}")
+    print(f"Sorting S3 -> {bam_path}")
     if not Path(bam_path).exists():
         pysam.sort('-O', 'BAM', '-@', str(num_threads), '-o', bam_path, bam_tmp_path)
     else:
-        print("skipping sort")
+        print("Skipping sort")
     bai_path = bam_path + ".bai"
-    print(f"creating index")
+    print(f"Creating index -> {bai_path}")
     if not Path(bai_path).exists():
         pysam.index('-b', '-@', str(num_threads), bam_path)
     else:
-        print("skipping index")
+        print("Skipping index")
 
 
 def download_VCF(bucket: str, key: str, local_file_name: str):
@@ -63,7 +63,6 @@ def download_VCF(bucket: str, key: str, local_file_name: str):
 
 def get_reads_overlapping_window(variant_rec, window_size: int, bam_path: str):
     print(f"get_reads_overlapping_window {variant_rec} {window_size} {bam_path}")
-    print(type(variant_rec))
     print(f"variant.info: {dict(variant_rec.info)}")
     print(f"variant.id: {variant_rec.id}")
     central_pos = variant_rec.pos - 1 # convert 1-based to 0-based
@@ -78,7 +77,6 @@ def get_reads_overlapping_window(variant_rec, window_size: int, bam_path: str):
     # print(f"f: {f}")
     k_mers = []
     for read in f.fetch(region=region):
-        # print(f"read: {type(read)}{read}")
         seq = read.get_forward_sequence()
         # print(f"seq: (len {len(seq):,}) {seq}")
         # print(f"reference_start {read.reference_start}") # 0-based
@@ -125,6 +123,7 @@ def show_variants_in_range(vcf_f, centroid: int, delta: int = 50, remove_chr: bo
             print(var)
     print("+++ end")
 
+
 def download_file(URL: str) -> str:
     local_file_name = URL.split("/")[-1]
     if not Path(local_file_name).exists():
@@ -137,14 +136,14 @@ def download_file(URL: str) -> str:
     
 
 def download_reference_clinvar_dbSNP_ids(
-    clinvar_VCF_URL: str = "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar_20240813.vcf.gz",
+    clinvar_VCF_URL: str = "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar_20250323.vcf.gz",
     instrument_dbSNP_ids: Set[str] = {}  # for debugging
     ) -> Tuple[dict, VariantFile]:
 
     """
-    We first download the VCF file (and it's associated TBI file). We then extract
+    We first download the VCF file (and its associated TBI file). We then extract
     all variants that have an associated dbSNP id. We then compute and return
-    a mapping from region (<chrom>:<pos>) to a dict containing info about the variant
+    a mapping from locus (<chrom>:<pos>) to a dict containing info about the variant
     at that position (for now, dbSNP id and effect).
     
     We return a second value, the VariantFile object as a pass-thru.
@@ -152,7 +151,8 @@ def download_reference_clinvar_dbSNP_ids(
     [Note that they keep changing the URL, so the download may break. If it does,
     go to https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/ and get the latest version
     and update `clinvar_VCF_URL`.]
-
+    
+    @return dict(locus => info), VCF file
     """
     print(f"download_reference_clinvar_dbSNP_ids {clinvar_VCF_URL}")
     clinvar_file_name = download_file(clinvar_VCF_URL)
@@ -186,65 +186,93 @@ def download_reference_clinvar_dbSNP_ids(
     return region2info, clinvar_VCF # region is 1-based
 
 
+def pprint_region(region: str) -> str:
+    try:
+        chrom, locus = region.split(":")
+        return f"{chrom}:{int(locus):,}"
+    except:
+        print(f"WARNING: failed to parse {region}")
+        return region
+
+
 def generate_examples(
     ref_VCF: VariantFile,
     bam_path: str,
-    individual_variant_regions: Set[str], # samtools region string, chrXX
+    individual_variant_loci: Set[str], # samtools region string, chrXX
     chr_filt: str,  # chrXX
     num_reads_per_variant: int,
     required_read_len: int
     ):
     """
     Given a set of regions of variants in the individual's VCF,
-    `individual_variant_regions`, we compute and return the set of
+    `individual_variant_loci`, we compute and return the set of
     examples, where each example corresponds to a variant that is in
     the reference and that has one or more reads.
     """
+    print(f"generate_examples {bam_path} {chr_filt}"\
+          f" {num_reads_per_variant} {required_read_len}")
+    # Path("./ivrs.txt").write_text("\n".join(map(pprint_region, sorted(individual_variant_loci,
+    #                                                                   key=lambda ivr: int(ivr.split(":")[1])))))
+    ranges = defaultdict(lambda: dict(min=None, max=None))
+    for ivr in individual_variant_loci:
+        chrom, locus = ivr.split(":")
+        locus = int(locus)
+        if ranges[chrom]["max"] is None or ranges[chrom]["max"] < locus:
+            ranges[chrom]["max"] = locus
+        if ranges[chrom]["min"] is None or ranges[chrom]["min"] > locus:
+            ranges[chrom]["min"] = locus
+    print("Ranges:")
+    for chrom, min_max in ranges.items():
+        print(f"{chrom}:[{min_max['min']:,}..{min_max['max']:,}]")
     all_effects = set()
     alignment_file = pysam.AlignmentFile(bam_path)
     examples = []
-    for ref_var in ref_VCF.fetch(region=maybe_rm_chr_prefix(chr_filt)):
-        ref_region = f"{maybe_add_chr_prefix(ref_var.chrom)}:{ref_var.pos}"
-        # print(f"ref_region: {ref_region} info {dict(ref_var.info)}")
-        if ref_region in individual_variant_regions:
-            effect = ref_var.info.get("MC", None) # this is really a Tuple
+    for ref_variant in ref_VCF.fetch(region=maybe_rm_chr_prefix(chr_filt)):
+        ref_locus = f"{maybe_add_chr_prefix(ref_variant.chrom)}:{ref_variant.pos}"
+        print(f"ref_locus: {pprint_region(ref_locus)} info {dict(ref_variant.info)}")
+        if ref_locus in individual_variant_loci:
+            effect = ref_variant.info.get("MC", None) # this is really a Tuple
             if effect:
                 for eff in effect:
                     all_effects.add(eff)
         else:
             effect = None
-        reads = get_reads_for_locus(alignment_file, ref_var, num_reads_per_variant,
+        reads = get_reads_for_locus(alignment_file, ref_variant, num_reads_per_variant,
                                     required_read_len)
         if reads:
             examples.append({
-                "chrom": ref_var.chrom,
-                 "pos": ref_var.pos,
-                 "region": ref_region,
+                "chrom": ref_variant.chrom,
+                 "pos": ref_variant.pos,
+                 "region": ref_locus,
                  "effect": effect,
                  "reads": reads,
                  **SO_term_2_impact_and_score(effect)
                  })
+        else:
+            print("No reads found")
     print("all effects seen:")
     for eff in all_effects:
         print(f" - {eff}")
     print(f"Created {len(examples):,} examples")
+    assert len(examples) > 0, "Check the .bai file: it might be old"
     return examples
 
 
 def get_reads_for_locus(
     alignment_file: pysam.AlignmentFile,  # internal representation of BAM file
-    ref_var: pysam.VariantRecord,  # a reference Variant
+    ref_variant: pysam.VariantRecord,  # a reference Variant
     num_reads_per_variant: int,  # how many to return
     required_read_len: int):
     """
-    We truncate or discard reads that are not exactly `required_read_len` long. It turns
-    out this is under 1% of reads so it's not significant and makes the batch learning
-    easier (no need for padding).
+    We truncate or discard reads that are not exactly `required_read_len`
+    long. It turns out that we discard less than 1% of reads so it's not
+    significant and makes the batch learning easier (no need for padding).
     """
-    # print(f"get_reads_for_locus {maybe_add_chr_prefix(ref_var.chrom)}:{ref_var.pos}")
-    ref_region = f"{maybe_add_chr_prefix(ref_var.chrom)}:{ref_var.pos}-{ref_var.pos}"
+    print(f"get_reads_for_locus {maybe_add_chr_prefix(ref_variant.chrom)}:{int(ref_variant.pos):,}")
+    ref_region = f"{maybe_add_chr_prefix(ref_variant.chrom)}:{ref_variant.pos}-{ref_variant.pos}"
+    print(f"ref_region {ref_region}")
     raw_reads = list(alignment_file.fetch(region=ref_region))
-    # print(f"Got {len(reads):,} reads")
+    print(f"Got {len(raw_reads):,} reads")
     actual_reads = []
     for read in raw_reads:
         if len(read.get_forward_sequence()) < required_read_len:
@@ -253,12 +281,13 @@ def get_reads_for_locus(
             actual_reads.append(read)
         else:
             # keep it if the variant is NOT in the discarded part
-            if ref_var.pos - read.reference_start < required_read_len:
+            if ref_variant.pos - read.reference_start < required_read_len:
                 actual_reads.append(read)
     if not actual_reads:
         # If no reads for this variant, discard it
+        print("no actual reads")
         return []
-    # assert all(read.reference_start <= ref_var.pos and ref_var.pos <= read.reference_end
+    # assert all(read.reference_start <= ref_variant.pos and ref_variant.pos <= read.reference_end
             #   for read in reads)
     if num_reads_per_variant == 1:
         # pick a read in the middle
@@ -353,37 +382,15 @@ def generate_bam_stats(bam_path: str, target_len: int = 150):
         print(f"Lengths: {dict(lens_dict)}")
 
 
-# def parse_s3_location(s3_location: str) -> Tuple[str, str]:
-#     """
-#     Return the bucket and the prefix.
-
-#     >>> parse_s3_location("s3://bucket/path1/path2")
-#     ('bucket', 'path1/path2')
-
-#     >>> parse_s3_location("s3://bucket/")
-#     ('bucket', '')
-
-#     >>> parse_s3_location("s3://bucket")
-#     ('bucket', '')
-
-#     """
-#     match = re.match("^s3://([^/]+)/?(.*)$", s3_location)
-#     if match:
-#         return match.group(1), match.group(2)
-#     else:
-#         return None, None
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--bamOriPath',     type=str, required=True,  dest='bamOriPath')
     parser.add_argument('-d', '--dataFolder',     type=str, required=True,  dest='dataFolder')
-    # parser.add_argument('-o', '--outputFolder',   type=str, required=True,  dest='outputFolder')
     parser.add_argument('-r', '--refFile',        type=str, required=True,  dest='referenceFile')
     parser.add_argument('-l', '--requiredReadLen',type=int, required=False, dest='requiredReadLen',
                         default=150,
-                        help="All reads must be this length (shorter ones discarded, longer ones truncated)"
-                             " so that we can batch examples on the GPU")
+                        help="All reads must be this length (shorter ones discarded, "
+                             "longer ones truncated) so that we can batch examples on the GPU")
     parser.add_argument('-@', '--numThreads',   type=int, required=False,
                         dest='numThreads', default=30)
     parser.add_argument('-nr','--numReadsPerVariant', type=int, required=False,
@@ -393,7 +400,7 @@ if __name__ == "__main__":
                         help="Number of examples to generate, return all of them if -1")
     parser.add_argument('-s3', '--s3resultsLocation',type=str, required=False,
                         dest='s3resultsLocation', default=None,
-                        help="If set, upload results here. Should be 's3://bucket/prefix/")
+                        help="If set, upload results here. Format: 's3://bucket/prefix/'")
 
     args = parser.parse_args()
     subject = args.bamOriPath.split('/')[-1].split('.')[0]
@@ -408,10 +415,8 @@ if __name__ == "__main__":
     
     # create file names
     bam_tmp = f'{subject}_tmp_{chr_filt}.bam'
-    bam =  f'{subject}_{chr_filt}.bam'
+    bam = f'{subject}_{chr_filt}.bam'
     cram = f'{subject}_chr21.cram'
-    fastq_r1 = f'{subject}_chr21_r1.fastq.gz'
-    fastq_r2 = f'{subject}_chr21_r2.fastq.gz'
 
     # pull partial file 
     bam_tmp_path = data_folder + bam_tmp
@@ -419,36 +424,38 @@ if __name__ == "__main__":
     s3_path = args.bamOriPath
     download_s3(s3_path, bam_path, bam_tmp_path, chr_filt, num_threads)
 
-    region2refInfo, ref_VCF = download_reference_clinvar_dbSNP_ids()
-    
-    # region2refInfo maps a sam-tools-style region to a dict {"dbSNPid": ..., "effect": ...}
-    
-    vcf_path = data_folder + "HG00096.hard-filtered.vcf.gz"
+    locus2refInfo, ref_VCF = download_reference_clinvar_dbSNP_ids()
+
+    # locus2refInfo maps "chrom:pos" to an info dict {"dbSNPid": ..., "effect": ...}
+
+    # Download the individual's variants:
+    vcf_name = "HG00553.hard-filtered.vcf.gz"
+    vcf_path = data_folder + vcf_name
     download_VCF(bucket="1000genomes-dragen-3.7.6",
-                 key="data/individuals/hg38-graph-based/HG00096/HG00096.hard-filtered.vcf.gz",
+                 key=f"data/individuals/hg38-graph-based/HG00553/{vcf_name}",
                  local_file_name=vcf_path)
                  
     vcf_f = VariantFile(vcf_path)
-    variants = [var for var in vcf_f.fetch(region=chr_filt)]
+    variants = list(vcf_f.fetch(region=chr_filt))
     print(f"we have {len(variants):,} variants in the individual")
 
     variants_with_dbSNP_id = [
         var for var in variants
-        if f"{var.chrom}:{var.pos}" in region2refInfo
+        if f"{var.chrom}:{var.pos}" in locus2refInfo
     ]
     print(f"and {len(variants_with_dbSNP_id):,} of those have dbSNP ids")
     print("here are some example dbSNP variants:")
-    for region, dbSNPid in list(region2refInfo.items())[:10]:
+    for region, dbSNPid in list(locus2refInfo.items())[:10]:
         print(f"{dbSNPid} -> {region}")
         
-    individual_variant_regions = [f"{var.chrom}:{var.pos}"
-                                  for var in vcf_f.fetch(region=chr_filt)]
-    print(f"Found {len(individual_variant_regions):,} individual variant regions, here is a sample:")
-    for x in sample(individual_variant_regions, k=10):
+    individual_variant_loci = [f"{var.chrom}:{var.pos}"
+                               for var in vcf_f.fetch(region=chr_filt)]
+    print(f"Found {len(individual_variant_loci):,} individual variant loci, here is a sample:")
+    for x in sample(individual_variant_loci, k=10):
         print(f" - {x}")
     train_test = generate_examples(
         ref_VCF=ref_VCF, bam_path=bam_path,
-        individual_variant_regions=individual_variant_regions,
+        individual_variant_loci=individual_variant_loci,
         chr_filt=chr_filt,  # chrXX
         num_reads_per_variant=num_reads_per_variant,
         required_read_len=required_read_len)
