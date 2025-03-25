@@ -22,16 +22,27 @@ First, we download a single individual's BAM file from [1000 genomes](https://ww
 Next, we download a GRCh38 VCF file from [ClinVar](https://www.ncbi.nlm.nih.gov/clinvar/) that has reference variants, [dbSNP](https://www.ncbi.nlm.nih.gov/snp/) ids for some of those variants, and variant impacts. Next we download that individuals' variants. We then compute the intersection of the reference variants and individual variants, and further filter out variants that do not have a dbSNP id. We finally pick a single read that overlaps that variant and return the tuple (read, variant) as a training example.
 
 Here is an example of how to run `generate-examples.py`. This generates a file `examples.jsonl` in the given s3 location
-`s3://sgh-misc/evo-datasets/<num-examples>/`:
+`s3://sgh-misc/evo-datasets/<num-examples>/`. Note that the following code uses `pysam` which is resource intensive: 
+you'll need at least 128G of hard drive storage and at least 32G of RAM (e.g., a `ml.t3.2xlarge` instance).
+
+Before running this example, install some Python packages in your Python environment:
+```
+pip install -qU transformers torch pysam aws-healthomics-tools
+```
+
+and then:
 
 ```
+aws s3 cp s3://1000genomes-dragen-3.7.6/data/individuals/hg38-graph-based/HG00553/HG00553.bam .
 python3 generate-examples.py \
-    -b s3://1000genomes-dragen-3.7.6/data/individuals/hg38-graph-based/HG00553/HG00553.bam \
+    -b HG00553.bam \
     -d ./data/ \
     -r s3://1000genomes-dragen-3.7.6/references/fasta/hg38.fa \
     -N 5000 # how many examples to generate \
     -s3 s3://sgh-misc/evo-datasets/
 ```
+
+This typically takes 2-3 minutes to run.
 
 ### Step 2. Augment the training examples and generate Evo embeddings
 
