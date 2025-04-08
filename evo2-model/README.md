@@ -11,12 +11,13 @@ First, use the [Dockerfile](Dockerfile) to create a customized Docker image that
 The resulting image is large so make sure you have an instance with at least 256Gb of disc. You may need to [install the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), and you will need to authenticate the CLI with an IAM Role. Then you can do something like this to build the image and push it to an ECR repository (you'll need to create this):
 
 ```
-# Note the 'sudo is necessary and update the registry URL:
-aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 763104351884.dkr.ecr.us-east-1.amazonaws.com
+export ECR_REGISTRY=763104351884.dkr.ecr.us-east-1.amazonaws.com # update this for your registry
+# Note the 'sudo' is necessary:
+aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin $ECR_REGISTRY
 sudo docker build -t evo2 .
-# replace this with your repository's URL:
-sudo docker tag evo2:latest 111918798052.dkr.ecr.us-east-1.amazonaws.com/evo2:latest
-sudo docker push 111918798052.dkr.ecr.us-east-1.amazonaws.com/evo2:latest
+export ECR_REPO=${ECR_REGISTRY}/evo2:latest # replace this with your repository's URL
+sudo docker tag evo2:latest $ECR_REPO
+sudo docker push $ECR_REPO
 ```
 
 ## Creating and running the predictor
