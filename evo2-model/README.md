@@ -40,18 +40,12 @@ pip install --upgrade pip
 pip install ninja cmake pybind11 numpy psutil setuptools wheel
 ```
 
-Also, install the correct version of `transformer-engine`:
+Also, install the correct version of `transformer-engine` (note that we need a specific version of PyTorch):
 
 ```
 pip uninstall -y transformer_engine
-pip install torch
-pip install transformer-engine[pytorch]==1.13
-```
-
-We also need a specific version of PyTorch:
-
-```
 pip install torch==2.6
+pip install transformer-engine[pytorch]==1.13
 ```
 
 Finally, install Evo 2 itself:
