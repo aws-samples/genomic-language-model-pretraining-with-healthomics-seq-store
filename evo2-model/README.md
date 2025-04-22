@@ -1,5 +1,9 @@
 # Evo 2
 
+Many thanks to [Adam Stanley](https://github.com/astanley-work) (dmstn@amazon.com) and [Ashley Moon](https://github.com/DoomishFox) (chutkasc@amazon.com) for their contributions.
+
+---
+
 Evo 2 is the successor to Evo that has a longer context window (1 million bases or tokens) and is trained on more data (9.3 trillion bases) across multiple kingdoms.
 
 Here we show how to deploy Evo 2 to an EC2 instance.
@@ -42,8 +46,12 @@ Also, install the correct version of `transformer-engine`:
 pip uninstall -y transformer_engine
 pip install torch
 pip install transformer-engine[pytorch]==1.13
-pip install jax
-pip install transformer-engine[jax]==1.13
+```
+
+We also need a specific version of PyTorch:
+
+```
+pip install torch==2.6
 ```
 
 Finally, install Evo 2 itself:
