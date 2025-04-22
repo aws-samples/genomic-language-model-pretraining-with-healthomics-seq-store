@@ -10,7 +10,7 @@ Here we show how to deploy Evo 2 to an EC2 instance.
 
 ## Installation
 
-Create a new EC2 instance using the `Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.6.0 (Ubuntu 22.04) 20250406` AMI (currently this has ID `ami-0af5ce3bbdd2c86d3`) and a `p5.48xlarge` or `ml.p5e.48xlarge` instance type. Make sure you have plenty of disk space; to use the 40B weights model we suggest 256Gb of disk space.
+Create a new EC2 instance using the `Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.6.0 (Ubuntu 22.04) 20250406` AMI (currently this has ID `ami-0af5ce3bbdd2c86d3`) and a `p5.48xlarge` or `p5e.48xlarge` instance type. Make sure you have plenty of disk space; to use the 40B weights model we suggest 256Gb of disk space.
 
 Once you have logged into the instance, start by updating system packages
 
