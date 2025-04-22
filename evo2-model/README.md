@@ -4,7 +4,7 @@ Many thanks to [Adam Stanley](https://github.com/astanley-work) (dmstn@amazon.co
 
 ---
 
-Evo 2 is the successor to Evo that has a longer context window (1 million bases or tokens) and is trained on more data (9.3 trillion bases) across multiple kingdoms.
+[Evo 2](https://github.com/ArcInstitute/evo2/blob/main/README.md) is the successor to [Evo](https://arcinstitute.org/news/blog/evo) that has a longer context window (1 million bases or tokens) and is trained on more data (9.3 trillion bases) across multiple kingdoms.
 
 Here we show how to deploy Evo 2 to an EC2 instance.
 
