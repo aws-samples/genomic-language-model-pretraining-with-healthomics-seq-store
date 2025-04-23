@@ -58,7 +58,7 @@ pip install .
 ```
 This will take a few minutes. 
 
-Finally, we need to install Python 2.6. This must be done after installing Evo as otherwise it will be overwritten.
+Finally, we need to install PyTorch 2.6. This must be done after installing Evo as otherwise it will be overwritten.
 
 ```
 pip install torch==2.6
