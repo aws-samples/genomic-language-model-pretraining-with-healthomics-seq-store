@@ -46,11 +46,10 @@ Also, install the correct version of `transformer-engine` (note that we need a s
 
 ```
 pip uninstall -y transformer_engine
-pip install torch==2.6
 pip install transformer-engine[pytorch]==1.13
 ```
 
-Finally, install Evo 2 itself:
+Next, install Evo 2 itself:
 
 ```
 git clone --recurse-submodules https://github.com/ArcInstitute/evo2.git
@@ -58,6 +57,12 @@ cd evo2
 pip install .
 ```
 This will take a few minutes. 
+
+Finally, we need to install Python 2.6. This must be done after installing Evo as otherwise it will be overwritten.
+
+```
+pip install torch==2.6
+```
 
 ## Testing
 
